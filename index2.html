@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ApniBhasha Interpreter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for webkit browsers */
+        textarea::-webkit-scrollbar, pre::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        textarea::-webkit-scrollbar-track, pre::-webkit-scrollbar-track {
+            background: #1f2937; /* gray-800 */
+        }
+        textarea::-webkit-scrollbar-thumb, pre::-webkit-scrollbar-thumb {
+            background: #4b5563; /* gray-600 */
+            border-radius: 4px;
+        }
+        textarea::-webkit-scrollbar-thumb:hover, pre::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; /* gray-500 */
+        }
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+    </style>
+</head>
+<body class="h-full text-gray-200">
+    <div class="flex flex-col h-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <!-- Header -->
+        <header class="mb-4">
+            <h1 class="text-3xl font-bold text-white">ApniBhasha Interpreter</h1>
+            <p class="text-lg text-gray-400">Your custom language runner. Keywords: `ye`, `bol`, `agar`, `toh`</p>
+        </header>
+        
+        <!-- Run Button -->
+        <div class="mb-4">
+            <button id="runButton" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition duration-200 ease-in-out transform hover:-translate-y-0.5">
+                Run Code
+            </button>
+        </div>
+
+        <!-- Main Content: 2-column layout -->
+        <div class="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
+            
+            <!-- Column 1: Code Input -->
+            <div class="flex flex-col h-full min-h-[400px] md:min-h-0">
+                <label for="codeInput" class="text-sm font-medium text-gray-300 mb-2">ApniBhasha Code (Your .apni file)</label>
+                <textarea id="codeInput" class="code-font flex-grow bg-gray-800 border border-gray-700 rounded-lg p-4 text-white resize-none shadow-inner outline-none focus:ring-2 focus:ring-indigo-500" spellcheck="false">
+// Welcome to ApniBhasha!
+
+ye num1 = 10
+ye num2 = 25
+ye message = "Hello World"
+
+bol "Running calculations..."
+bol num1 + num2
+
+agar (num1 > num2) {
+  bol "Num 1 bada hai"
+} toh {
+  bol "Num 2 bada hai"
+}
+
+// Assignment
+num1 = 50
+bol "New num1:", num1
+
+// Logical operators
+agar (num1 > num2 && message == "Hello World") {
+  bol "Sab sahi hai!"
+}
+
+// Nested if-else
+ye a = 5
+agar (a == 1) {
+    bol "One"
+} toh agar (a == 5) {
+    bol "Five"
+} toh {
+    bol "Something else"
+}
+</textarea>
+            </div>
+
+            <!-- Column 2: Outputs -->
+            <div class="flex flex-col gap-6 h-full min-h-[400px] md:min-h-0">
+                
+                <!-- Output -->
+                <div class="flex flex-col flex-1 min-h-0">
+                    <label for="output" class="text-sm font-medium text-gray-300 mb-2">Output (from `bol`)</label>
+                    <pre id="output" class="code-font flex-grow bg-gray-800 border border-gray-700 rounded-lg p-4 text-green-400 overflow-auto shadow-inner"></pre>
+                </div>
+
+                <!-- Generated JS -->
+                <div class="flex flex-col flex-1 min-h-0">
+                    <label for="generatedJs" class="text-sm font-medium text-gray-300 mb-2">Generated JavaScript (Transpiled Code)</label>
+                    <pre id="generatedJs" class="code-font flex-grow bg-gray-800 border border-gray-700 rounded-lg p-4 text-cyan-400 text-sm overflow-auto shadow-inner"></pre>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. TOKEN TYPES ---
+        // An "enum" of all the token types our Lexer will create.
+        const TOKEN_TYPES = {
+            // Keywords
+            YE: 'YE',       // ye
+            BOL: 'BOL',     // bol
+            AGAR: 'AGAR',   // agar
+            TOH: 'TOH',     // toh
+            
+            // Literals
+            IDENTIFIER: 'IDENTIFIER', // variable names
+            NUMBER: 'NUMBER',     // 10, 20.5
+            STRING: 'STRING',     // "hello"
+
+            // Single-character operators
+            L_PAREN: 'L_PAREN',   // (
+            R_PAREN: 'R_PAREN',   // )
+            L_BRACE: 'L_BRACE',   // {
+            R_BRACE: 'R_BRACE',   // }
+            PLUS: 'PLUS',         // +
+            MINUS: 'MINUS',       // -
+            STAR: 'STAR',         // *
+            SLASH: 'SLASH',       // /
+            EQUAL: 'EQUAL',       // =
+            LESS: 'LESS',         // <
+            GREATER: 'GREATER',   // >
+            BANG: 'BANG',         // !
+
+            // Multi-character operators
+            EQUAL_EQUAL: 'EQUAL_EQUAL', // ==
+            BANG_EQUAL: 'BANG_EQUAL',   // !=
+            LESS_EQUAL: 'LESS_EQUAL',   // <=
+            GREATER_EQUAL: 'GREATER_EQUAL', // >=
+            AND: 'AND',           // &&
+            OR: 'OR',             // ||
+            
+            // Misc
+            SEMICOLON: 'SEMICOLON', // ; (optional, but good to support)
+            COMMA: 'COMMA',         // ,
+            EOF: 'EOF'              // End of File
+        };
+
+        // Map of keywords to their token types
+        const KEYWORDS = {
+            "ajitbhai": TOKEN_TYPES.YE,
+            "muzamilbhai": TOKEN_TYPES.BOL,
+            "agarajitbhai": TOKEN_TYPES.AGAR,
+            "tohmuzamilbhai": TOKEN_TYPES.TOH
+        };
+
+        // --- 2. LEXER (TOKENIZER) ---
+        // Takes raw code as a string and outputs an array of tokens.
+        function createLexer(source) {
+            let tokens = [];
+            let start = 0;    // Start of the current token
+            let current = 0;  // Current character being scanned
+
+            function isAtEnd() {
+                return current >= source.length;
+            }
+
+            function advance() {
+                return source.charAt(current++);
+            }
+
+            function addToken(type, value = null) {
+                const text = source.substring(start, current);
+                tokens.push({ type, value: value !== null ? value : text });
+            }
+
+            function match(expected) {
+                if (isAtEnd()) return false;
+                if (source.charAt(current) != expected) return false;
+                current++;
+                return true;
+            }
+
+            function peek() {
+                if (isAtEnd()) return '\0';
+                return source.charAt(current);
+            }
+
+            function string() {
+                while (peek() != '"' && !isAtEnd()) {
+                    advance();
+                }
+                if (isAtEnd()) {
+                    throw new Error(`Unterminated string at position ${start}`);
+                }
+                advance(); // The closing "
+                const value = source.substring(start + 1, current - 1);
+                addToken(TOKEN_TYPES.STRING, value);
+            }
+
+            function isDigit(c) {
+                return c >= '0' && c <= '9';
+            }
+
+            function peekNext() {
+                if (current + 1 >= source.length) return '\0';
+                return source.charAt(current + 1);
+            }
+
+            function number() {
+                while (isDigit(peek())) advance();
+                if (peek() == '.' && isDigit(peekNext())) {
+                    advance(); // Consume the "."
+                    while (isDigit(peek())) advance();
+                }
+                const value = parseFloat(source.substring(start, current));
+                addToken(TOKEN_TYPES.NUMBER, value);
+            }
+            
+            function isAlpha(c) {
+                return (c >= 'a' && c <= 'z') ||
+                       (c >= 'A' && c <= 'Z') ||
+                       c == '_';
+            }
+
+            function isAlphaNumeric(c) {
+                return isAlpha(c) || isDigit(c);
+            }
+
+            function identifier() {
+                while (isAlphaNumeric(peek())) advance();
+                const text = source.substring(start, current);
+                const type = KEYWORDS[text] || TOKEN_TYPES.IDENTIFIER;
+                addToken(type, text);
+            }
+
+            function scanToken() {
+                const c = advance();
+                switch (c) {
+                    // Single-character tokens
+                    case '(': addToken(TOKEN_TYPES.L_PAREN); break;
+                    case ')': addToken(TOKEN_TYPES.R_PAREN); break;
+                    case '{': addToken(TOKEN_TYPES.L_BRACE); break;
+                    case '}': addToken(TOKEN_TYPES.R_BRACE); break;
+                    case ',': addToken(TOKEN_TYPES.COMMA); break;
+                    case '+': addToken(TOKEN_TYPES.PLUS); break;
+                    case '-': addToken(TOKEN_TYPES.MINUS); break;
+                    case '*': addToken(TOKEN_TYPES.STAR); break;
+                    case ';': addToken(TOKEN_TYPES.SEMICOLON); break;
+
+                    // Multi-character tokens
+                    case '=':
+                        addToken(match('=') ? TOKEN_TYPES.EQUAL_EQUAL : TOKEN_TYPES.EQUAL);
+                        break;
+                    case '!':
+                        addToken(match('=') ? TOKEN_TYPES.BANG_EQUAL : TOKEN_TYPES.BANG);
+                        break;
+                    case '<':
+                        addToken(match('=') ? TOKEN_TYPES.LESS_EQUAL : TOKEN_TYPES.LESS);
+                        break;
+                    case '>':
+                        addToken(match('=') ? TOKEN_TYPES.GREATER_EQUAL : TOKEN_TYPES.GREATER);
+                        break;
+                    case '&':
+                        if (match('&')) {
+                            addToken(TOKEN_TYPES.AND);
+                        } else {
+                            throw new Error(`Unexpected character: ${c} at position ${start}`);
+                        }
+                        break;
+                    case '|':
+                        if (match('|')) {
+                            addToken(TOKEN_TYPES.OR);
+                        } else {
+                            throw new Error(`Unexpected character: ${c} at position ${start}`);
+                        }
+                        break;
+                    
+                    case '/':
+                        if (match('/')) {
+                            // A comment goes until the end of the line.
+                            while (peek() != '\n' && !isAtEnd()) advance();
+                        } else {
+                            addToken(TOKEN_TYPES.SLASH);
+                        }
+                        break;
+
+                    // Ignore whitespace
+                    case ' ':
+                    case '\r':
+                    case '\t':
+                    case '\n':
+                        break;
+
+                    // Strings
+                    case '"':
+                        string();
+                        break;
+
+                    default:
+                        if (isDigit(c)) {
+                            number();
+                        } else if (isAlpha(c)) {
+                            identifier();
+                        } else {
+                            throw new Error(`Unexpected character: ${c} at position ${start}`);
+                        }
+                        break;
+                }
+            }
+
+            // Public method
+            function tokenize() {
+                while (!isAtEnd()) {
+                    start = current;
+                    scanToken();
+                }
+                tokens.push({ type: TOKEN_TYPES.EOF, value: "" });
+                return tokens;
+            }
+            
+            // Return the public interface
+            return {
+                tokenize: tokenize
+            };
+        }
+
+        // --- 3. PARSER (AST GENERATOR) ---
+        // Takes an array of tokens and builds an Abstract Syntax Tree (AST).
+        function createParser(tokens) {
+            let current = 0;
+
+            // --- Parser Helper Methods ---
+            
+            function match(...types) {
+                for (const type of types) {
+                    if (check(type)) {
+                        advance();
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function consume(type, message) {
+                if (check(type)) return advance();
+                throw new Error(message);
+            }
+
+            function check(type) {
+                if (isAtEnd()) return false;
+                return peek().type == type;
+            }
+
+            function advance() {
+                if (!isAtEnd()) current++;
+                return previous();
+            }
+
+            function isAtEnd() {
+                return peek().type == TOKEN_TYPES.EOF;
+            }
+
+            function peek() {
+                return tokens[current];
+            }
+
+            function previous() {
+                return tokens[current - 1];
+            }
+
+            // --- Expression Parsers (by precedence) ---
+            
+            function primary() {
+                if (match(TOKEN_TYPES.NUMBER)) {
+                    return { type: 'NumericLiteral', value: previous().value };
+                }
+                if (match(TOKEN_TYPES.STRING)) {
+                    return { type: 'StringLiteral', value: previous().value };
+                }
+                if (match(TOKEN_TYPES.IDENTIFIER)) {
+                    return { type: 'Identifier', name: previous().value };
+                }
+                if (match(TOKEN_TYPES.L_PAREN)) {
+                    const expr = expression();
+                    consume(TOKEN_TYPES.R_PAREN, "Expect ')' after expression.");
+                    return { type: 'Grouping', expression: expr };
+                }
+                throw new Error(`Expect expression, got ${peek().type}`);
+            }
+
+            function unary() {
+                if (match(TOKEN_TYPES.BANG, TOKEN_TYPES.MINUS)) {
+                    const operator = previous().value;
+                    const right = unary();
+                    return { type: 'UnaryExpression', operator, right };
+                }
+                return primary();
+            }
+
+            function factor() {
+                let expr = unary();
+                while (match(TOKEN_TYPES.STAR, TOKEN_TYPES.SLASH)) {
+                    const operator = previous().value;
+                    const right = unary();
+                    expr = { type: 'BinaryExpression', left: expr, operator, right };
+                }
+                return expr;
+            }
+
+            function term() {
+                let expr = factor();
+                while (match(TOKEN_TYPES.PLUS, TOKEN_TYPES.MINUS)) {
+                    const operator = previous().value;
+                    const right = factor();
+                    expr = { type: 'BinaryExpression', left: expr, operator, right };
+                }
+                return expr;
+            }
+
+            function comparison() {
+                let expr = term();
+                while (match(TOKEN_TYPES.GREATER, TOKEN_TYPES.GREATER_EQUAL, TOKEN_TYPES.LESS, TOKEN_TYPES.LESS_EQUAL)) {
+                    const operator = previous().value;
+                    const right = term();
+                    expr = { type: 'BinaryExpression', left: expr, operator, right };
+                }
+                return expr;
+            }
+
+            function equality() {
+                let expr = comparison();
+                while (match(TOKEN_TYPES.EQUAL_EQUAL, TOKEN_TYPES.BANG_EQUAL)) {
+                    const operator = previous().value;
+                    const right = comparison();
+                    expr = { type: 'BinaryExpression', left: expr, operator, right };
+                }
+                return expr;
+            }
+            
+            function logicalAnd() {
+                let expr = equality();
+                while (match(TOKEN_TYPES.AND)) {
+                    const operator = previous().value;
+                    const right = equality();
+                    expr = { type: 'LogicalExpression', left: expr, operator, right };
+                }
+                return expr;
+            }
+            
+            function logicalOr() {
+                let expr = logicalAnd();
+                while (match(TOKEN_TYPES.OR)) {
+                    const operator = previous().value;
+                    const right = logicalAnd();
+                    expr = { type: 'LogicalExpression', left: expr, operator, right };
+                }
+                return expr;
+            }
+
+            function assignment() {
+                const expr = logicalOr(); // Left-hand side
+                
+                if (match(TOKEN_TYPES.EQUAL)) {
+                    const value = assignment(); // Right-hand side is recursive
+                    
+                    if (expr.type === 'Identifier') {
+                        return { type: 'AssignmentExpression', name: expr.name, value };
+                    }
+                    throw new Error("Invalid assignment target.");
+                }
+                
+                return expr;
+            }
+
+            function expression() {
+                return assignment();
+            }
+
+            // --- Statement Parsers ---
+            
+            function expressionStatement() {
+                const expr = expression();
+                return { type: 'ExpressionStatement', expression: expr };
+            }
+
+            function blockStatement() {
+                const statements = [];
+                while (!check(TOKEN_TYPES.R_BRACE) && !isAtEnd()) {
+                    statements.push(statement());
+                }
+                consume(TOKEN_TYPES.R_BRACE, "Expect '}' after block.");
+                return { type: 'BlockStatement', body: statements };
+            }
+
+            function ifStatement() {
+                consume(TOKEN_TYPES.L_PAREN, "Expect '(' after 'agar'.");
+                const condition = expression();
+                consume(TOKEN_TYPES.R_PAREN, "Expect ')' after if condition.");
+                
+                const consequent = statement();
+                let alternate = null;
+                if (match(TOKEN_TYPES.TOH)) {
+                    alternate = statement();
+                }
+                
+                return { type: 'IfStatement', condition, consequent, alternate };
+            }
+
+            function printStatement() {
+                // Allow multiple expressions, e.g., bol "Hello", name
+                const expressions = [expression()];
+                while (match(TOKEN_TYPES.COMMA)) {
+                    expressions.push(expression());
+                }
+                return { type: 'PrintStatement', expressions };
+            }
+
+            function varDeclaration() {
+                const name = consume(TOKEN_TYPES.IDENTIFIER, "Expect variable name after 'ye'.");
+                let value = null;
+                if (match(TOKEN_TYPES.EQUAL)) {
+                    value = expression();
+                }
+                return { type: 'VariableDeclaration', name: name.value, value };
+            }
+
+            function statement() {
+                if (match(TOKEN_TYPES.YE)) return varDeclaration();
+                if (match(TOKEN_TYPES.BOL)) return printStatement();
+                if (match(TOKEN_TYPES.AGAR)) return ifStatement();
+                if (match(TOKEN_TYPES.L_BRACE)) return blockStatement();
+                return expressionStatement();
+            }
+
+            // Public method
+            function parse() {
+                const statements = [];
+                while (!isAtEnd()) {
+                    try {
+                        statements.push(statement());
+                    } catch (e) {
+                        // In a real compiler, we'd synchronize and continue parsing.
+                        // For this simple one, we can just re-throw.
+                        throw e;
+                    }
+                }
+                return { type: 'Program', body: statements };
+            }
+
+            return {
+                parse: parse
+            };
+        }
+
+        // --- 4. CODE GENERATOR (TRANSPILER) ---
+        // Walks the AST and generates a JavaScript code string.
+        function createCodeGenerator() {
+
+            // --- Visitor Functions ---
+            // We declare all visitor functions first, so they can
+            // call the main 'visit' function, which can call them.
+            
+            function visit(node) {
+                switch (node.type) {
+                    case 'VariableDeclaration':
+                        return visitVariableDeclaration(node);
+                    case 'PrintStatement':
+                        return visitPrintStatement(node);
+                    case 'IfStatement':
+                        return visitIfStatement(node);
+                    case 'BlockStatement':
+                        return visitBlockStatement(node);
+                    case 'ExpressionStatement':
+                        return visitExpressionStatement(node);
+                    case 'AssignmentExpression':
+                        return visitAssignmentExpression(node);
+                    case 'LogicalExpression':
+                    case 'BinaryExpression':
+                        return visitBinaryExpression(node);
+                    case 'UnaryExpression':
+                        return visitUnaryExpression(node);
+                    case 'Grouping':
+                        return `(${visit(node.expression)})`;
+                    case 'NumericLiteral':
+                        return node.value;
+                    case 'StringLiteral':
+                        // JSON.stringify handles escaping quotes, newlines, etc.
+                        return JSON.stringify(node.value); 
+                    case 'Identifier':
+                        return node.name;
+                    default:
+                        throw new Error(`Unknown AST node type: ${node.type}`);
+                }
+            }
+            
+            function visitVariableDeclaration(node) {
+                const value = node.value ? visit(node.value) : 'null';
+                // Using 'let' to allow reassignment.
+                return `let ${node.name} = ${value};`;
+            }
+
+            function visitPrintStatement(node) {
+                // We'll have the generated code push to an `__output` array
+                // instead of using console.log, so we can capture it.
+                const args = node.expressions.map(expr => visit(expr)).join(', ');
+                return `__output.push(${args});`;
+            }
+            
+            function visitIfStatement(node) {
+                const condition = visit(node.condition);
+                const consequent = visit(node.consequent);
+                let js = `if (${condition}) ${consequent}`;
+                if (node.alternate) {
+                    js += ` else ${visit(node.alternate)}`;
+                }
+                return js;
+            }
+
+            function visitBlockStatement(node) {
+                const body = node.body.map(stmt => visit(stmt)).join('\n');
+                return `{\n${body}\n}`;
+            }
+
+            function visitExpressionStatement(node) {
+                return `${visit(node.expression)};`;
+            }
+
+            function visitAssignmentExpression(node) {
+                return `${node.name} = ${visit(node.value)}`;
+            }
+
+            function visitBinaryExpression(node) {
+                const left = visit(node.left);
+                const right = visit(node.right);
+                return `(${left} ${node.operator} ${right})`;
+            }
+
+            function visitUnaryExpression(node) {
+                const right = visit(node.right);
+                return `(${node.operator}${right})`;
+            }
+
+            // Public method
+            function generate(programNode) {
+                if (programNode.type !== 'Program') {
+                    throw new Error("Invalid AST root: Expected 'Program'");
+                }
+                // We'll wrap the whole thing in a 'try...catch'
+                // to send runtime errors to our output.
+                let jsCode = "try {\n";
+                jsCode += programNode.body.map(statement => visit(statement)).join('\n');
+                jsCode += "\n} catch (e) {\n  __output.push(e.message);\n}";
+                return jsCode;
+            }
+
+            return {
+                generate: generate
+            };
+        }
+
+
+        // --- 5. RUNNER ---
+        // Main function to tie everything together.
+        function runCode() {
+            const code = document.getElementById('codeInput').value;
+            const outputElement = document.getElementById('output');
+            const jsElement = document.getElementById('generatedJs');
+
+            // Clear previous outputs
+            outputElement.textContent = '';
+            jsElement.textContent = '';
+
+            // This array will capture all `bol` outputs
+            const __output = [];
+
+            try {
+                // 1. Lexer
+                const lexer = createLexer(code); // Changed
+                const tokens = lexer.tokenize();
+                
+                // 2. Parser
+                const parser = createParser(tokens); // Changed
+                const ast = parser.parse();
+
+                // 3. Code Generator
+                const generator = createCodeGenerator(); // Changed
+                const jsCode = generator.generate(ast);
+                jsElement.textContent = jsCode; // Display the generated JS
+
+                // 4. Run
+                // We use `new Function` to run the code in a controlled
+                // scope. We pass in our `__output` array so the
+                // `__output.push()` calls in the generated code work.
+                const runner = new Function('__output', jsCode);
+                
+                // Execute the generated code
+                runner(__output);
+
+                // Display the captured output
+                outputElement.textContent = __output.map(line => 
+                    Array.isArray(line) ? line.join(' ') : String(line)
+                ).join('\n');
+                outputElement.classList.remove('text-red-400');
+                outputElement.classList.add('text-green-400');
+
+            } catch (e) {
+                // Display lexer, parser, or runtime errors
+                outputElement.textContent = e.stack;
+                outputElement.classList.remove('text-green-400');
+                outputElement.classList.add('text-red-400');
+            }
+        }
+
+        // Attach event listener to the button
+        document.getElementById('runButton').addEventListener('click', runCode);
+        
+        // Run once on load to show the example
+        runCode();
+    </script>
+</body>
+</html>
+
+
